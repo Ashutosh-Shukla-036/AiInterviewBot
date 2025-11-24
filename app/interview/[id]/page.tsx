@@ -6,7 +6,6 @@ import { useRecoilState } from 'recoil';
 import { currentInterviewState } from '@/store/atoms';
 import AuthGuard from '@/components/AuthGuard';
 import VideoInterviewInterface from '@/components/VideoInterviewInterface';
-import { generateProjectQuestions, InterviewQuestion, Project, AnswerAnalysis } from '@/lib/ai-services';
 import { toast } from 'sonner';
 
 interface InterviewPageProps {
@@ -16,8 +15,8 @@ interface InterviewPageProps {
 export default function InterviewPage({ params }: InterviewPageProps) {
   const [currentInterview, setCurrentInterview] = useRecoilState(currentInterviewState);
   const [isLoading, setIsLoading] = useState(true);
-  const [questions, setQuestions] = useState<InterviewQuestion[]>([]);
-  const [projects, setProjects] = useState<Project[]>([]);
+  const [questions, setQuestions] = useState<any[]>([]);
+  const [projects, setProjects] = useState<any[]>([]);
   const router = useRouter();
 
   useEffect(() => {
@@ -32,37 +31,32 @@ export default function InterviewPage({ params }: InterviewPageProps) {
     try {
       const token = localStorage.getItem('auth_token');
       const response = await fetch(`/api/interviews/${params.id}`, {
-        headers: {
-          'Authorization': `Bearer ${token}`
-        }
+        headers: { 'Authorization': `Bearer ${token}` }
       });
 
-      if (response.ok) {
-        const data = await response.json();
+      if (!response.ok) throw new Error('Interview not found');
 
-        console.log(data);
-        setCurrentInterview(data.interview);
-        
-        // Extract projects from interview skills (which now contains projects)
-        // ✅ Correct: pull projects directly
-        const interviewProjects = data.interview.skills?.projects || [];
-        setProjects(interviewProjects);
-        
-        // Generate questions based on projects
-        if (interviewProjects.length > 0) {
-          try {
-            const generatedQuestions = await generateProjectQuestions(interviewProjects);
-            setQuestions(generatedQuestions);
-          } catch (error) {
-            console.error('Error generating questions:', error);
-            toast.error('Failed to generate interview questions');
-          }
-        }
-      } else {
-        toast.error('Interview not found');
-        router.push('/dashboard');
+      const data = await response.json();
+      setCurrentInterview(data.interview);
+      const interviewProjects = data.interview.skills?.projects || [];
+      setProjects(interviewProjects);
+
+      // Generate questions via API
+      if (interviewProjects.length > 0) {
+        const questionRes = await fetch(`/api/interviews/${params.id}/questions`, {
+          method: 'POST',
+          headers: { 
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${token}`
+          },
+          body: JSON.stringify({ projects: interviewProjects })
+        });
+        if (!questionRes.ok) throw new Error('Failed to generate questions');
+        const questionData = await questionRes.json();
+        setQuestions(questionData.questions);
       }
-    } catch (error) {
+    } catch (err) {
+      console.error(err);
       toast.error('Failed to load interview');
       router.push('/dashboard');
     } finally {
@@ -70,49 +64,26 @@ export default function InterviewPage({ params }: InterviewPageProps) {
     }
   };
 
-  const handleComplete = async (answers: { questionId: string; answer: string; analysis: AnswerAnalysis }[]) => {
+  const handleComplete = async (answers: any[]) => {
     try {
       const token = localStorage.getItem('auth_token');
-      
-      // Save all answers to the database
-      for (const answerData of answers) {
-        await fetch(`/api/interviews/${params.id}/answers`, {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${token}`
-          },
-          body: JSON.stringify({
-            questionId: answerData.questionId,
-            answer: answerData.answer,
-            score: answerData.analysis.score,
-            analysis: answerData.analysis
-          })
-        });
-      }
-      
-      // Complete the interview
-      const completeResponse = await fetch(`/api/interviews/${params.id}/complete`, {
+      const res = await fetch(`/api/interviews/${params.id}/complete`, {
         method: 'POST',
-        headers: {
+        headers: { 
           'Content-Type': 'application/json',
           'Authorization': `Bearer ${token}`
         },
-        body: JSON.stringify({
-          answers: answers,
-          projects: projects
-        })
+        body: JSON.stringify({ answers, projects })
       });
 
-      if (completeResponse.ok) {
-        const data = await completeResponse.json();
-        setCurrentInterview(data.interview);
-        toast.success('Interview completed successfully!');
-        router.push(`/interview/${params.id}/results`);
-      } else {
-        throw new Error('Failed to complete interview');
-      }
-    } catch (error) {
+      if (!res.ok) throw new Error('Failed to complete interview');
+
+      const data = await res.json();
+      setCurrentInterview(data.interview);
+      toast.success('Interview completed!');
+      router.push(`/interview/${params.id}/results`);
+    } catch (err) {
+      console.error(err);
       toast.error('Failed to complete interview');
     }
   };
@@ -120,27 +91,17 @@ export default function InterviewPage({ params }: InterviewPageProps) {
   if (isLoading) {
     return (
       <AuthGuard>
-        <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-          <div className="text-center">
-            <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4"></div>
-            <p className="text-white text-lg">Loading your interview...</p>
+        <div className="min-h-screen flex items-center justify-center bg-gray-900">
+          <div className="text-center text-white">
+            <div className="animate-spin h-16 w-16 border-b-2 border-blue-600 mx-auto mb-4 rounded-full"></div>
+            <p>Loading your interview...</p>
           </div>
         </div>
       </AuthGuard>
     );
   }
 
-  if (!currentInterview) {
-    return (
-      <AuthGuard>
-        <div className="min-h-screen bg-gray-900 flex items-center justify-center">
-          <div className="text-center">
-            <p className="text-white text-lg">Interview not found</p>
-          </div>
-        </div>
-      </AuthGuard>
-    );
-  }
+  if (!currentInterview) return <AuthGuard><p>Interview not found</p></AuthGuard>;
 
   return (
     <AuthGuard>
