@@ -5,14 +5,14 @@ const nextConfig = {
   },
   images: { unoptimized: true },
   experimental: {
-    dynamicIO: true,
+    // dynamicIO: true,  <-- remove this
   },
   webpack: (config, { isServer }) => {
-        if (isServer) {
-            config.externals.push('pdf-parse');
-        }
-        return config;
-    },
+    if (isServer) {
+      config.externals.push('pdf-parse');
+    }
+    return config;
+  },
 };
 
 module.exports = nextConfig;
