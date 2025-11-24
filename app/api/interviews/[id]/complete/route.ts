@@ -1,78 +1,99 @@
 import { NextRequest, NextResponse } from 'next/server';
 import { prisma } from '@/lib/prisma';
 import { getAuthUser } from '@/lib/auth';
-import { generateInterviewFeedback, InterviewQuestion, Project, AnswerAnalysis } from '@/lib/ai-services';
+import { 
+  generateInterviewFeedback, 
+  InterviewQuestion, 
+  Project, 
+  AnswerAnalysis,
+  assessSkillLevel,
+  generateIndustryComparison
+} from '@/lib/ai-services';
 
 export async function POST(
   request: NextRequest,
   { params }: { params: { id: string } }
 ) {
   try {
+    // Authenticate user
     const userId = await getAuthUser(request);
-    
     if (!userId) {
-      return NextResponse.json(
-        { error: 'Unauthorized' },
-        { status: 401 }
-      );
+      return NextResponse.json({ error: 'Unauthorized' }, { status: 401 });
     }
-    
+
+    // Get request payload
     const { answers, projects } = await request.json();
-    
-    // Find interview
+
+    // Fetch the interview
     const interview = await prisma.interview.findFirst({
-      where: {
-        id: params.id,
-        userId
-      },
-      include: {
-        questions: true
-      }
+      where: { id: params.id, userId },
+      include: { questions: true }
     });
-    
+
     if (!interview) {
-      return NextResponse.json(
-        { error: 'Interview not found' },
-        { status: 404 }
-      );
+      return NextResponse.json({ error: 'Interview not found' }, { status: 404 });
     }
-    
-    // Reconstruct questions and analyses from answers
-    const questions: InterviewQuestion[] = answers.map((a: any) => ({
-      id: a.questionId,
-      projectTitle: 'Project',
-      questionText: 'Project-based question',
-      category: 'technical',
-      expectedPoints: []
-    }));
-    
+
+    // Map answers to AnswerAnalysis array
     const analyses: AnswerAnalysis[] = answers.map((a: any) => a.analysis);
-    
-    // Generate comprehensive feedback
-    const feedbackSummary = await generateInterviewFeedback(questions, analyses, projects);
-    
-    // Update interview status and feedback
+
+    // Build InterviewMetrics from answers (stub / approximation)
+    const totalDuration = answers.reduce((acc: number, a: any) => acc + (a.timeTaken || 0), 0);
+    const averageResponseTime = answers.length ? totalDuration / answers.length : 0;
+    const wordsPerMinute = 120; // placeholder, you can calculate based on word count / time
+    const pauseCount = answers.reduce((acc: number, a: any) => acc + (a.pauseCount || 0), 0);
+    const confidenceLevel = answers.length
+      ? Math.round(answers.reduce((acc: number, a: any) => acc + (a.analysis?.confidence || 50), 0) / answers.length)
+      : 50;
+    const technicalDepth = answers.length
+      ? Math.round(answers.reduce((acc: number, a: any) => acc + (a.analysis?.technicalAccuracy || 50), 0) / answers.length)
+      : 50;
+    const communicationScore = answers.length
+      ? Math.round(answers.reduce((acc: number, a: any) => acc + (a.analysis?.communicationClarity || 50), 0) / answers.length)
+      : 50;
+
+    const interviewMetrics = {
+      totalDuration,
+      averageResponseTime,
+      wordsPerMinute,
+      pauseCount,
+      confidenceLevel,
+      technicalDepth,
+      communicationScore,
+      overallRating: 'Good' as const
+    };
+
+    // Assess skill level
+    const skillAssessment = await assessSkillLevel(projects || []);
+
+    // Generate industry comparison data
+    const comparisonData = generateIndustryComparison(technicalDepth);
+
+    // Generate feedback
+    const feedbackSummary = await generateInterviewFeedback(
+      interviewMetrics,
+      comparisonData,
+      skillAssessment,
+      projects || []
+    );
+
+    // Update interview status & feedback
     const updatedInterview = await prisma.interview.update({
       where: { id: params.id },
       data: {
         status: 'COMPLETED',
         feedbackSummary
       },
-      include: {
-        questions: true
-      }
+      include: { questions: true }
     });
-    
+
     return NextResponse.json({
       interview: updatedInterview,
       feedback: feedbackSummary
     });
-    
+
   } catch (error) {
     console.error('Error completing interview:', error);
-    return NextResponse.json(
-      { error: 'Internal server error' },
-      { status: 500 }
-    );
+    return NextResponse.json({ error: 'Internal server error' }, { status: 500 });
   }
 }

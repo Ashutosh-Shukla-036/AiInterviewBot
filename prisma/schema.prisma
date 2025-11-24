@@ -1,5 +1,5 @@
 generator client {
-  provider = "prisma-client-js"
+  provider      = "prisma-client-js"
   binaryTargets = ["native", "rhel-openssl-3.0.x", "linux-musl"] 
 }
 
@@ -15,9 +15,7 @@ model User {
   password  String
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
-  
   interviews Interview[]
-  
   @@map("users")
 }
 
@@ -30,10 +28,8 @@ model Interview {
   status          InterviewStatus @default(PENDING)
   createdAt       DateTime @default(now())
   updatedAt       DateTime @updatedAt
-  
   user      User       @relation(fields: [userId], references: [id], onDelete: Cascade)
   questions Question[]
-  
   @@map("interviews")
 }
 
@@ -42,13 +38,13 @@ model Question {
   interviewId    String
   category       String
   questionText   String
+  projectTitle   String?
   expectedAnswer String?
   userAnswer     String?
   score          Float?
+  analysis       Json?
   createdAt      DateTime @default(now())
-  
-  interview Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
-  
+  interview      Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
   @@map("questions")
 }
 
